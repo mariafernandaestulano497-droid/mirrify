@@ -1,10 +1,11 @@
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:camera/camera.dart';
+
 import '../theme.dart';
 import '../models/catalog_item.dart';
 import '../services/catalog_service.dart';
+import '../services/mqtt_service.dart';
 import '../supabase_client.dart';
 import '../widgets/mirrify_logo.dart';
 import 'admin_page.dart';
@@ -19,27 +20,25 @@ class SimulatorPage extends StatefulWidget {
 
 class _SimulatorPageState extends State<SimulatorPage>
     with WidgetsBindingObserver {
+
+  final MqttService _mqttService = MqttService();
   final CatalogService _catalogService = CatalogService();
 
-  // Câmera
   CameraController? _cameraController;
   List<CameraDescription> _cameras = [];
   bool _cameraReady = false;
   bool _cameraError = false;
   String _cameraErrorMsg = '';
-  bool _mirrorMode = true; // Espelhar câmera frontal
-  bool _useDemoAvatar = false; // Fallback caso a webcam esteja ocupada
+  bool _mirrorMode = true;
+  bool _useDemoAvatar = false;
 
-  // NeoPixel (LEDs da moldura)
   String _neoPixelMode = 'Natural (4500K)';
   Color _neoPixelColor = const Color(0xFFFBF6E9);
 
-  // Visuais
   CatalogItem? _activeVisual;
   String _selectedCategory = 'Todos';
-  int _currentTabIndex = 0; // 0 = Espelho/Catálogo, 1 = Minha Galeria
+  int _currentTabIndex = 0;
 
-  // Opacidade do overlay do visual (0.0 = só câmera, 1.0 = só visual)
   double _overlayOpacity = 0.5;
 
   static const String _adminEmail = 'manucatarinavs2@gmail.com';
@@ -49,15 +48,205 @@ class _SimulatorPageState extends State<SimulatorPage>
     return email.trim().toLowerCase() == _adminEmail.toLowerCase();
   }
 
+  void _onMqttUpdate() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addObserver(this);
+
+    _mqttService.addListener(_onMqttUpdate);
+    _mqttService.connect();
+
     _catalogService.addListener(_onCatalogChanged);
+
     if (_catalogService.items.isNotEmpty) {
       _activeVisual = _catalogService.items.first;
     }
+
     _initCamera();
+  }
+
+    Widget _buildSensorPanel() {
+    final data = _mqttService.telemetry;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE5DEFA)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.sensors_rounded,
+                color: AppPalette.secondary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Sensores do Mirrify',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: _mqttService.connected
+                      ? Colors.green.withOpacity(0.1)
+                      : Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _mqttService.connected ? 'ONLINE' : 'OFFLINE',
+                  style: TextStyle(
+                    color: _mqttService.connected
+                        ? Colors.green
+                        : Colors.red,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _mqttService.connectionMessage,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 12,
+              color: AppPalette.textMuted,
+            ),
+          ),
+          const SizedBox(height: 18),
+          if (data == null)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: CircularProgressIndicator(),
+              ),
+            )
+          else
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _sensorCard(
+                  'Presença',
+                  data.presence ? 'Detectada' : 'Ausente',
+                  data.presence
+                      ? Icons.person_rounded
+                      : Icons.person_off_rounded,
+                  data.presence ? Colors.green : Colors.grey,
+                ),
+                _sensorCard(
+                  'Distância',
+                  data.distance < 0
+                      ? 'Sem leitura'
+                      : '${data.distance.toStringAsFixed(1)} cm',
+                  Icons.straighten_rounded,
+                  Colors.blue,
+                ),
+                _sensorCard(
+                  'Luminosidade',
+                  '${data.light}%',
+                  Icons.light_mode_rounded,
+                  Colors.orange,
+                ),
+                _sensorCard(
+                  'Condição',
+                  data.status.replaceAll('_', ' '),
+                  Icons.check_circle_outline_rounded,
+                  data.status == 'adequado'
+                      ? Colors.green
+                      : Colors.orange,
+                ),
+              ],
+            ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _mqttService.connected
+                      ? () => _mqttService.sendCommand('led_on')
+                      : null,
+                  icon: const Icon(Icons.lightbulb_rounded),
+                  label: const Text('Ligar LEDs'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _mqttService.connected
+                      ? () => _mqttService.sendCommand('led_off')
+                      : null,
+                  icon: const Icon(Icons.lightbulb_outline_rounded),
+                  label: const Text('Desligar LEDs'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sensorCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return SizedBox(
+      width: 145,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.07),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.15)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 10),
+            Text(
+              title,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11,
+                color: AppPalette.textMuted,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: AppPalette.textDark,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -202,6 +391,8 @@ class _SimulatorPageState extends State<SimulatorPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _mqttService.removeListener(_onMqttUpdate);
+    _mqttService.disconnect();
     _stopCamera();
     _catalogService.removeListener(_onCatalogChanged);
     super.dispose();
@@ -219,82 +410,102 @@ class _SimulatorPageState extends State<SimulatorPage>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final filteredItems = _selectedCategory == 'Todos'
-        ? _catalogService.items
-        : _catalogService.items
-            .where((item) => item.category == _selectedCategory)
-            .toList();
+Widget build(BuildContext context) {
+  final filteredItems = _selectedCategory == 'Todos'
+      ? _catalogService.items
+      : _catalogService.items
+          .where((item) => item.category == _selectedCategory)
+          .toList();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F5FC),
-      appBar: _buildAppBar(),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isDesktop = constraints.maxWidth > 900;
+  return Scaffold(
+    backgroundColor: const Color(0xFFF7F5FC),
+    appBar: _buildAppBar(),
+    body: LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final isDesktop = width >= 950;
+        final horizontalPadding = width < 600 ? 12.0 : 24.0;
 
-          if (_currentTabIndex == 1) return _buildGalleryView();
+        if (_currentTabIndex == 1) {
+          return _buildGalleryView();
+        }
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-            child: isDesktop
-                ? Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: 5,
-                        child: Column(
-                          children: [
-                            _buildMirrorView(),
-                            const SizedBox(height: 16),
-                            _buildNeoPixelPanel(),
-                          ],
+        return SingleChildScrollView(
+          padding: EdgeInsets.symmetric(
+            horizontal: horizontalPadding,
+            vertical: 20,
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1500),
+              child: isDesktop
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 5,
+                          child: Column(
+                            children: [
+                              _buildMirrorView(),
+                              const SizedBox(height: 18),
+                              _buildSensorPanel(),
+                              const SizedBox(height: 18),
+                              _buildNeoPixelPanel(),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 24),
-                      Expanded(
-                        flex: 6,
-                        child: _buildCatalogSection(filteredItems),
-                      ),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      _buildMirrorView(),
-                      const SizedBox(height: 16),
-                      _buildNeoPixelPanel(),
-                      const SizedBox(height: 24),
-                      _buildCatalogSection(filteredItems),
-                    ],
-                  ),
-          );
-        },
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentTabIndex,
-        onTap: (index) => setState(() => _currentTabIndex = index),
-        selectedItemColor: AppPalette.secondary,
-        unselectedItemColor: AppPalette.textMuted,
-        backgroundColor: Colors.white,
-        selectedLabelStyle:
-            GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700),
-        items: [
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.auto_awesome_rounded),
-            label: 'Simulador',
-          ),
-          BottomNavigationBarItem(
-            icon: Badge(
-              isLabelVisible: _catalogService.savedGallery.isNotEmpty,
-              label: Text('${_catalogService.savedGallery.length}'),
-              child: const Icon(Icons.favorite_rounded),
+                        const SizedBox(width: 24),
+                        Expanded(
+                          flex: 6,
+                          child: _buildCatalogSection(filteredItems),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildMirrorView(),
+                        const SizedBox(height: 18),
+                        _buildSensorPanel(),
+                        const SizedBox(height: 18),
+                        _buildNeoPixelPanel(),
+                        const SizedBox(height: 24),
+                        _buildCatalogSection(filteredItems),
+                      ],
+                    ),
             ),
-            label: 'Minha Galeria',
           ),
-        ],
+        );
+      },
+    ),
+    bottomNavigationBar: BottomNavigationBar(
+      currentIndex: _currentTabIndex,
+      onTap: (index) {
+        setState(() => _currentTabIndex = index);
+      },
+      selectedItemColor: AppPalette.secondary,
+      unselectedItemColor: AppPalette.textMuted,
+      backgroundColor: Colors.white,
+      selectedLabelStyle: GoogleFonts.plusJakartaSans(
+        fontWeight: FontWeight.w700,
       ),
-    );
-  }
+      items: [
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.auto_awesome_rounded),
+          label: 'Simulador',
+        ),
+        BottomNavigationBarItem(
+          icon: Badge(
+            isLabelVisible: _catalogService.savedGallery.isNotEmpty,
+            label: Text('${_catalogService.savedGallery.length}'),
+            child: const Icon(Icons.favorite_rounded),
+          ),
+          label: 'Minha Galeria',
+        ),
+      ],
+    ),
+  );
+}
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(

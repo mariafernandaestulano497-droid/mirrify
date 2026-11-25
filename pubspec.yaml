@@ -13,6 +13,8 @@ dependencies:
   google_fonts: ^6.2.1
   email_validator: ^2.1.17
   cupertino_icons: ^1.0.8
+  camera: ^0.11.0+2
+  mqtt_client: ^10.14.0
 
 dev_dependencies:
   flutter_test:
@@ -22,4 +24,4 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - .env
+    - .env.example

@@ -1,4 +1,4 @@
-.env
+.env.example
 .dart_tool/
 .flutter-plugins-dependencies
 build/
