@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseService {
@@ -42,6 +43,28 @@ class SupabaseService {
 
   static Future<void> signOut() async {
     await client.auth.signOut();
+  }
+
+  // Adicionado para buscar o tipo de usuário na tabela profiles
+  static Future<String?> getUserRole() async {
+    try {
+      final user = currentUser;
+      if (user == null) return null;
+
+      // Busca na tabela 'profiles' a coluna 'tipo_usuario' usando o ID do usuário logado
+      final response = await client
+          .from('profiles')
+          .select('tipo_usuario')
+          .eq('id', user.id) // Certifique-se de que na tabela a coluna de ID se chama 'id'
+          .maybeSingle(); // Use maybeSingle() para evitar erro caso o perfil não exista
+
+      if (response == null) return null;
+      
+      return response['tipo_usuario'] as String?;
+    } catch (e) {
+      debugPrint('Erro ao buscar role: $e');
+      return null;
+    }
   }
 
   static User? get currentUser => client.auth.currentUser;

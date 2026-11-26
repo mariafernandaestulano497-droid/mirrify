@@ -8,6 +8,7 @@ import '../widgets/mirrify_logo.dart';
 import 'signup_page.dart';
 import 'forgot_password_page.dart';
 import 'simulator_page.dart';
+import 'admin_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -41,17 +42,44 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  // --- NOVO MÉTODO PARA PÁGINA DE ADMIN ---
+  void _navigateToAdminPage() {
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 500),
+        // Substitua pela sua página de Admin real
+        pageBuilder: (_, anim, __) => const AdminPage(),
+        transitionsBuilder: (_, anim, __, child) => FadeTransition(opacity: anim, child: child),
+      ),
+    );
+  }
+
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _errorMsg = null; });
 
     try {
+      // 1. Faz o login
       await SupabaseService.signIn(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text,
       );
+      
       if (!mounted) return;
-      _navigateToSimulator();
+
+      // 2. Verifica o tipo de usuário (Role)
+      final tipoUsuario = await SupabaseService.getUserRole();
+
+      if (!mounted) return;
+
+      // 3. Redireciona baseado no tipo de usuário
+      if (tipoUsuario == 'administrador') {
+        _navigateToAdminPage();
+      } else {
+        // Se for 'usuario' ou null (caso não tenha perfil ainda), vai pro simulador
+        _navigateToSimulator(); 
+      }
+
     } on AuthException catch (error) {
       if (!mounted) return;
       final message = error.message.toLowerCase().contains('email not confirmed')
@@ -60,9 +88,12 @@ class _LoginPageState extends State<LoginPage> {
               ? 'E-mail ou senha incorretos. Verifique suas credenciais e tente novamente.'
               : error.message);
       setState(() { _errorMsg = message; _loading = false; });
-    } catch (_) {
+    } catch (e) { // Mudei o catch para mostrar o erro real se falhar a busca no banco
       if (!mounted) return;
-      setState(() { _errorMsg = 'Erro de conexão. Tente novamente.'; _loading = false; });
+      setState(() { 
+        _errorMsg = 'Erro ao fazer login ou buscar perfil. Detalhes: $e'; 
+        _loading = false; 
+      });
     }
   }
 
@@ -186,7 +217,7 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                 ),
 
-                                // Erro (RF02 — recusa credenciais erradas)
+                                // Erro
                                 if (_errorMsg != null) ...[
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
