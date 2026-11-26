@@ -9,6 +9,7 @@ class MirrorTelemetry {
   final int light;
   final String status;
   final bool led;
+  final String message; // texto exibido no Display OLED
 
   MirrorTelemetry({
     required this.presence,
@@ -16,6 +17,7 @@ class MirrorTelemetry {
     required this.light,
     required this.status,
     required this.led,
+    required this.message,
   });
 
   factory MirrorTelemetry.fromJson(Map<String, dynamic> json) {
@@ -25,14 +27,15 @@ class MirrorTelemetry {
       light: (json['luminosidade'] ?? 0).toInt(),
       status: json['status'] ?? 'aguardando',
       led: json['led'] ?? false,
+      message: (json['mensagem'] as String?) ?? 'Aguardando o espelho...',
     );
   }
 }
 
 class MqttService extends ChangeNotifier {
-  static const String host = 'wss://broker.emqx.io:1883/mqtt';
-  static const String telemetryTopic = 'velune/espelho/telemetria';
-  static const String commandTopic = 'velune/espelho/comando';
+  static const String host = 'wss://broker.emqx.io:8084/mqtt';
+  static const String telemetryTopic = 'mirrify/espelho/telemetria';
+  static const String commandTopic = 'mirrify/espelho/comando';
 
   MqttBrowserClient? _client;
 
@@ -76,10 +79,10 @@ class MqttService extends ChangeNotifier {
 
         client.updates?.listen((messages) {
           for (final message in messages) {
-            final publish =
-                message.payload as MqttPublishMessage;
-            final payload = MqttPublishPayload.bytesToStringAsString(
-                publish.payload.message);
+            final publish = message.payload as MqttPublishMessage;
+            final payload =
+                MqttPublishPayload.bytesToStringAsString(
+                    publish.payload.message);
 
             try {
               final data = jsonDecode(payload);
@@ -107,7 +110,7 @@ class MqttService extends ChangeNotifier {
     if (!connected || _client == null) return;
 
     final builder = MqttClientPayloadBuilder();
-    builder.addString(command);
+    builder.addString(jsonEncode({'cmd': command}));
 
     _client!.publishMessage(
       commandTopic,
